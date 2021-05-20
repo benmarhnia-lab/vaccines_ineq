@@ -102,7 +102,7 @@ ggplot(data = df3) +
   scale_fill_viridis_c(option = "plasma", labels = scales::percent_format(accuracy = 1)) + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
   labs(fill = "% vaccinated") +
   #coord_sf(crs = "+proj=eqearth") + 
-  theme_minimal() 
+  theme_bw() 
 #+ggsave("./4_Figures/Map_India_OPV.png", width = 8, height=6, dpi=300)
   
 
