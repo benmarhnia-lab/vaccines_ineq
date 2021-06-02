@@ -102,6 +102,12 @@ map_fic <- df3_r %>%
 mapview(map_fic, zcol ="clust_LISA", col.regions = brewer.pal(7, "RdBu"),
         layer.name = "LISA - FIC")
 
+map_fic %>%
+  ggplot(aes(fill = clust_LISA)) + 
+  scale_fill_brewer(palette = "RdBu") + 
+  theme_bw()
+
+
 map_pic <- df3_r %>%
   inner_join(w.getis %>% filter(var1 =="PIC"), 
              by = c("cntrycode", "dist.code")) %>%
