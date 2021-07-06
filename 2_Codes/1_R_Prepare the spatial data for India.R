@@ -29,13 +29,15 @@ df0 <- read.csv("./1_Data/DHS_data_for_analysis.csv") %>%
     #Infectious disease symptoms
     diarrhea, fever, cough, ari,
     #Household & maternal characteristics
-    wt, hhwt, region, residence, edulevel, literate, resident, wealth, cntrycode) %>% 
+    wt, hhwt, region, residence, edulevel, literate, resident, wealth, wealthscorenew, cntrycode) %>% 
   mutate(dtpvacfull = ifelse(dtpvac == "yes", 1, 0)) %>% 
   mutate(opvvacfull = ifelse(opvvac == "yes", 1, 0)) %>% 
-  filter(cntrycode == "IA")
+  filter(cntrycode == "IA") %>% 
+  #Generate new variable for fully immunized child (FIC) - child received all 8 vaccines
+  mutate(fic = ifelse(bcgvac==1 & dtp1vac==1 & dtp2vac==1 & dtp3vac==1 & opv1vac==1 & opv2vac==1 & opv3vac==1 & mcvvac==1, 1, 0))
 
 #### Import the geographical covariates for India (add ADMIN-1 and ADMIN-2 names and codes to the main data)
-spdf <-readOGR("C:/Users/annak/Dropbox/Data/DHS/GE/IAGE71FL/IAGE71FL.shp")
+spdf <-readOGR("C:/Users/annak/Dropbox/Data/DHS/DHS 7/GE/IAGE71FL/IAGE71FL.shp")
 df1 <- as.data.frame(spdf) %>% 
   dplyr::select(DHSCLUST, ADM1NAME, ADM1DHS, DHSREGNA, DHSREGCO) %>% 
   rename(psu       = DHSCLUST,
@@ -55,9 +57,11 @@ df1 <- as.data.frame(spdf) %>%
 
 df0 <- left_join(df0, df1)
 
+
 #### Agregate the data to the district level (ADMIN-2)
 df2 <- df0 %>%        
-  filter(agemonths>=12 & agemonths<=23) %>% 
+  #filter(agemonths>=12 & agemonths<=23) %>% 
+  filter(agemonths>=12) %>% 
   group_by(cntrycode, dist.name, dist.code) %>% 
   summarise(FIC = weighted.mean(fic, wt, na.rm=T),
             PIC = weighted.mean(pic, wt, na.rm=T),
@@ -72,16 +76,6 @@ df2 <- df0 %>%
             Rota = weighted.mean(rotavacfull, wt, na.rm=T),
             PCV = weighted.mean(pcvvacfull, wt, na.rm=T)) %>% 
   ungroup()
-
-#### Import the subnational boundaries for India (ADMIN-1 level)
-## download the boundaries from the DHS spatial reposity at the desired level: https://spatialdata.dhsprogram.com/boundaries/#view=table&countryId=IA
-#bound_adm1 <- sf::st_read("./1_Data/dhs_spatial_data/IA/shps/sdr_subnational_boundaries.shp") %>% 
-#  dplyr::select(DHSCC, REGCODE, REGNAME, SVYNOTES) %>% 
-#  rename(cntrycode = DHSCC,
-#         reg.code = REGCODE,
-#         reg.name = REGNAME)
-
-
 
 #### Import the subnational boundaries for India (ADMIN-2 level)
 ## download the boundaries from the DHS spatial reposity at the desired level: https://spatialdata.dhsprogram.com/boundaries/#view=table&countryId=IA
@@ -106,12 +100,12 @@ save(df0, file="./2_Codes/Data_India_individual_level.RData")
 
 #### Plot the data
 ggplot(data = df3) +
-  geom_sf(aes(fill = OPV), col="grey50",  size = 0.05) +
+  geom_sf(aes(fill = FIC), col="grey50",  size = 0.05) +
   scale_fill_viridis_c(option = "plasma", labels = scales::percent_format(accuracy = 1)) + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
   labs(fill = "% vaccinated") +
   #coord_sf(crs = "+proj=eqearth") + 
-  theme_minimal() 
-#+ggsave("./4_Figures/Map_India_OPV.png", width = 8, height=6, dpi=300)
+  theme_minimal() +
+  ggsave("./4_Figures/Map_India_FIC.png", width = 8, height=6, dpi=300)
   
 
 

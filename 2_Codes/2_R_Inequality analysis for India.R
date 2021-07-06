@@ -16,79 +16,68 @@ library(broom)
 
 setwd("C:/Users/annak/Dropbox/Projects/2021_San Diego/Vaccination - spatial analysis/")
 
-###############################################
-#### Prepare the data
-###############################################
 ### Import the individual level data for India
 load("./2_Codes/Data_India_individual_level.RData")
+
+###############################################
+#### Inequality analysis by wealth group
+###############################################
+
+## Generate new wealth index by district
+#library(Hmisc)
+#df0 <- df0 %>% 
+#  group_by(cntrycode, dist.name, dist.code) %>% 
+#  mutate(wealth = as.numeric(cut2(wealthscorenew, g=5))) %>% 
+#    ungroup()
 
 #### Generate district level (ADMIN-2) vaccination rates by socio-economic group (wealth & education)
 ## By wealth group: 1 - most deprived to 5 - least deprived
 df1 <- df0 %>%        
-  filter(agemonths>=12 & agemonths<=23) %>% 
+  #filter(agemonths>=12 & agemonths<=23) %>%       
+  filter(agemonths>=12) %>%       
   group_by(cntrycode, dist.name, dist.code, wealth) %>% 
-  summarise(MCV = weighted.mean(mcvvac, wt, na.rm=T),
+  summarise(FIC = weighted.mean(fic, wt, na.rm=T),
             pop = n()) %>% 
   ungroup() %>% 
   group_by(cntrycode, dist.name, dist.code) %>% 
-  mutate(total_pop = sum(pop),    #add the total population for each area (without wealth)    
+  mutate(total_pop = sum(pop), #add the total population for each area (without wealth)    
          proportion_pop = pop/total_pop) %>% 
-  ungroup()
+  ungroup() %>% 
+  #reverse the measure, i.e. share of unvaccinated children is the outcome
+  mutate(FIC = 1 - FIC)
 
 
-#### Generate region level (ADMIN-1) vaccination rates by socio-economic group (wealth & education)
-## By wealth group: 1 - most deprived to 5 - least deprived
-#df1 <- df0 %>%        
-#  filter(agemonths>=12 & agemonths<=23) %>% 
-#  #filter(agemonths>=12) %>% 
-#  group_by(cntrycode, reg.name, reg.code, wealth) %>% 
-#  summarise(MCV = weighted.mean(mcvvac, wt, na.rm=T),
-#            pop = n()) %>%
-#  ungroup() %>% 
+## Remove districts with less  than 30 observations per group
+# Note! This will remove over two thirds of the observations!
+#df1 <- df1 %>% 
 #  group_by(cntrycode, dist.name, dist.code) %>% 
-#  mutate(total_pop = sum(pop),    #add the total population for each area (without wealth)  
-#         proportion_pop = pop/total_pop) %>% 
-#  ungroup()
+#  mutate(min_pop = min(pop)) %>% 
+#  filter(min_pop >= 30)
 
 
 ## Add overall values for the whole region/district (without wealth quintile)
 overall_values <- df0 %>% 
+  #filter(agemonths>=12 & agemonths<=23) %>%
+  filter(agemonths>=12) %>%       
   group_by(cntrycode, dist.code) %>% 
-  summarise(overall = weighted.mean(mcvvac, wt, na.rm=T)) %>% 
+  summarise(overall = weighted.mean(fic, wt, na.rm=T)) %>%
+  #reverse the measure, i.e. share of unvaccinated children is the outcome
+  mutate(overall = 1 - overall) %>% 
   ungroup()
   
 df1 <- left_join(df1, overall_values)
 
-### By education group
-df2 <- df0 %>%        
-  filter(agemonths>=12 & agemonths<=23) %>% 
-  group_by(cntrycode, dist.name, dist.code, edulevel) %>% 
-  summarise(MCV = weighted.mean(mcvvac, wt, na.rm=T),
-            pop = n()) %>% 
-  ungroup() %>% 
-  group_by(cntrycode, dist.name, dist.code) %>% 
-  mutate(total_pop = sum(pop),           #calculate the total population for each area (without wealth quintile)
-         proportion_pop = pop/total_pop) %>% 
-  ungroup() %>% 
-  mutate(edulevel = as.character(edulevel))
 
-## Reorder education levels - 1 is the lowest and 4 is the highest level
-df2$edulevel <- factor(df2$edulevel, levels = c("no education", "primary", "secondary", "higher"))
-df2 <- left_join(df2, overall_values) %>% 
-  arrange(dist.name, edulevel)
-
-###############################################
-#### Inequality analysis by wealth quintile
-###############################################
-## Slope Index of Inequality (SII)
-sii_model_1 <- df1 %>%  group_by(cntrycode, dist.code, dist.name) %>% 
+#### Slope Index of Inequality (SII)
+sii_model_1 <- df1 %>%  
+  group_by(cntrycode, dist.code, dist.name) %>% 
   mutate(cumulative_pro = cumsum(proportion_pop),              #cumulative proportion population for each area
          relative_rank = case_when(
            wealth == 1 ~ 0.5*proportion_pop,
            wealth != 1 ~ lag(cumulative_pro) + 0.5*proportion_pop),
          sqr_proportion_pop = sqrt(proportion_pop),            #square root of the proportion of the population in each SIMD
          relrank_sqr_proppop = relative_rank * sqr_proportion_pop,
-         value_sqr_proppop = sqr_proportion_pop * MCV) %>%     #value based on population weights
+         value_sqr_proppop = sqr_proportion_pop * FIC) %>%     #value based on population weights
   nest() %>% #creating one column called data with all the variables not in the grouping
   # Calculating linear regression for all the groups, then formatting the results
   # and calculating the confidence intervals
@@ -133,37 +122,80 @@ bound_adm2 <- sf::st_read("./1_Data/dhs_spatial_data/IA/shps/sdr_subnational_bou
 ## Join the results by district with the geographical boundaries
 results_1 <- left_join(bound_adm2, results_1) 
 
+results_1$rii[results_1$rii > 2.5 ] <- 2.5
+
+
 ## Plot the results
 ggplot(data = results_1) +
   geom_sf(aes(fill = sii), col="grey50",  size = 0.05) +
-  scale_fill_viridis_c(option = "plasma") + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  #scale_fill_viridis_c(option = "plasma", direction = -1) + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  scale_fill_gradient2(low="#08306b", high="#a50f15", midpoint=0) +
   labs(fill = "Slope Index of Inequality") +
   #coord_sf(crs = "+proj=eqearth") + 
   theme_minimal() +
-  ggsave("./4_Figures/Map_India_MCV_SII_by_wealth_quintile.png", width = 8, height=6, dpi=300)
+  ggsave("./4_Figures/Map_India_FIC_wealth_SII.png", width = 8, height=6, dpi=300)
 
 
 ggplot(data = results_1) +
   geom_sf(aes(fill = rii), col="grey50",  size = 0.05) +
-  scale_fill_viridis_c(option = "plasma") + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  #scale_fill_viridis_c(option = "plasma", direction = -1) + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  scale_fill_gradient2(low="#08306b", high="#a50f15", midpoint=0,
+                       labels = c("-2", "-1", "0", 1, expression("">=2)),
+                       breaks = c(-2, -1, 0, 1, 2)) +
+  #facet_wrap(vars(outcome)) + +
   labs(fill = "Relative Index of Inequality") +
   #coord_sf(crs = "+proj=eqearth") + 
   theme_minimal() +
-  ggsave("./4_Figures/Map_India_MCV_RII_by_wealth_quintile.png", width = 8, height=6, dpi=300)
+  ggsave("./4_Figures/Map_India_FIC_wealth_RII.png", width = 8, height=6, dpi=300)
+
+
 
 
 ###############################################
 #### Inequality analysis by education group
 ###############################################
+
+df2 <- df0 %>%        
+  #filter(agemonths>=12 & agemonths<=23) %>%
+  filter(agemonths>=12) %>%       
+  #mutate(edulevel = as.character(edulevel)) %>% 
+  #mutate(edulevel = ifelse(edulevel == "no education" | edulevel == "primary", "primary or lower", edulevel)) %>% 
+  group_by(cntrycode, dist.name, dist.code, edulevel) %>% 
+  summarise(FIC = weighted.mean(fic, wt, na.rm=T),
+            pop = n()) %>% 
+  ungroup() %>% 
+  group_by(cntrycode, dist.name, dist.code) %>% 
+  mutate(total_pop = sum(pop),  #calculate the total population for each area (without wealth quintile)
+         proportion_pop = pop/total_pop) %>% 
+  ungroup() %>% 
+  mutate(edulevel = as.character(edulevel))%>% 
+  #reverse the measure, i.e. share of unvaccinated children is the outcome
+  mutate(FIC = 1 - FIC)
+
+## Remove districts with less  than 30 observations per group
+# Note! This will remove over two thirds of the observations!
+#df2 <- df2 %>% 
+#  group_by(cntrycode, dist.name, dist.code) %>% 
+#  mutate(min_pop = min(pop)) %>% 
+#  filter(min_pop >= 30)
+
+## Reorder education levels - 1 is the lowest and 4 is the highest level
+#df2$edulevel <- factor(df2$edulevel, levels = c("primary or lower", "secondary", "higher"))
+df2$edulevel <- factor(df2$edulevel, levels = c("no education", "primary", "secondary", "higher"))
+df2 <- left_join(df2, overall_values) %>% 
+  arrange(dist.name, edulevel)
+
+
 ## Slope Index of Inequality (SII)
-sii_model_2 <- df2 %>%  group_by(cntrycode, dist.code, dist.name) %>% 
+sii_model_2 <- df2 %>%  
+  group_by(cntrycode, dist.code, dist.name) %>% 
   mutate(cumulative_pro = cumsum(proportion_pop),              #cumulative proportion population for each area
          relative_rank = case_when(
            edulevel == 1 ~ 0.5*proportion_pop,
            edulevel != 1 ~ lag(cumulative_pro) + 0.5*proportion_pop),
          sqr_proportion_pop = sqrt(proportion_pop),            #square root of the proportion of the population in each SIMD
          relrank_sqr_proppop = relative_rank * sqr_proportion_pop,
-         value_sqr_proppop = sqr_proportion_pop * MCV) %>%     #value based on population weights
+         value_sqr_proppop = sqr_proportion_pop * FIC) %>%     #value based on population weights
   nest() %>% #creating one column called data with all the variables not in the grouping
   # Calculating linear regression for all the groups, then formatting the results
   # and calculating the confidence intervals
@@ -171,7 +203,8 @@ sii_model_2 <- df2 %>%  group_by(cntrycode, dist.code, dist.name) %>%
          #extracting sii from model, a bit fiddly but it works
          sii = -1 * as.numeric(map(map(model, "coefficients"), "relrank_sqr_proppop")),
          cis = map(model, confint_tidy)) %>% #calculating confidence intervals
-  ungroup() %>% unnest(cis) %>% #Unnesting the CIs 
+  ungroup() %>% 
+  unnest(cis) %>% #Unnesting the CIs 
   #selecting only even row numbers which are the ones that have the sii cis
   filter(row_number() %% 2 == 0) %>% 
   mutate(lowci_sii = -1 * conf.high, #fixing interpretation
@@ -196,20 +229,85 @@ results_2 <- sii_model_2 %>%
 ## Join the results by district with the geographical boundaries
 results_2 <- left_join(bound_adm2, results_2) 
 
+results_2$rii[results_2$rii > 2.5 ] <- 2.5
+results_2$rii[results_2$rii < -2.5 ] <- -2.5
+
 ## Plot the results
 ggplot(data = results_2) +
   geom_sf(aes(fill = sii), col="grey50",  size = 0.05) +
-  scale_fill_viridis_c(option = "plasma") + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  #scale_fill_viridis_c(option = "plasma", direction = -1) + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  scale_fill_gradient2(low="#08306b", high="#a50f15", midpoint=0) +
   labs(fill = "Slope Index of Inequality") +
   #coord_sf(crs = "+proj=eqearth") + 
   theme_minimal() +
-  ggsave("./4_Figures/Map_India_MCV_SII_by_edu_level.png", width = 8, height=6, dpi=300)
+  ggsave("./4_Figures/Map_India_FIC_edu_SII.png", width = 8, height=6, dpi=300)
 
 
 ggplot(data = results_2) +
   geom_sf(aes(fill = rii), col="grey50",  size = 0.05) +
-  scale_fill_viridis_c(option = "plasma") + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  #scale_fill_viridis_c(option = "plasma",  direction = -1) + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  scale_fill_gradient2(low="#08306b", high="#a50f15", midpoint=0,
+                       labels = c(expression(""<=-2), "-1", "0", 1, expression("">=2)),
+                       breaks = c(-2, -1, 0, 1, 2)) +
   labs(fill = "Relative Index of Inequality") +
   #coord_sf(crs = "+proj=eqearth") + 
   theme_minimal() +
-  ggsave("./4_Figures/Map_India_MCV_RII_by_edu_level.png", width = 8, height=6, dpi=300)
+  ggsave("./4_Figures/Map_India_FIC_edu_RII.png", width = 8, height=6, dpi=300)
+
+
+
+###############################################
+#### Concentration Index
+###############################################
+
+library(magrittr)
+
+## Create an empty data frame where results will be stored
+df4 = data.frame(matrix(vector(), 0, 2,
+                            dimnames=list(c(), c("dist.code", "c.index"))),
+                     stringsAsFactors=F)
+
+districts <- unique(df0$dist.code)
+
+i = 247
+for (i in districts){
+ 
+  df3 <- df0 %>% 
+     mutate(vacc = bcgvac + dtp1vac + dtp2vac + dtp3vac + opv1vac + opv2vac + opv3vac + mcvvac) %>% 
+     select(wealthscorenew, vacc, fic, reg.name, dist.name, dist.code) %>% 
+     filter(dist.code == i) %>%
+     drop_na()
+
+  df3$c.vacc <- cumsum(df3$vacc)/sum(df3$vacc)
+  df3$c.wealth <- df3 %$% cume_dist(wealthscorenew)
+  
+  ggplot(df3, aes(x = c.wealth, y = c.vacc)) +
+    geom_point(color = "red") +
+    geom_line() +
+    geom_abline(color = "forestgreen") +
+    labs(title = "Concentration Curve: Basic immunization vs wealth",
+         x = "Cumulative wealth rank",
+         y = "Cumulative immunization")
+
+  c.index = 2/mean(df3$vacc) * cov(df3$vacc, df3$c.wealth)
+  dist.code = i
+
+  df.tmp <- data.frame(dist.code, c.index)
+  df4 <- rbind(df4, df.tmp)
+  
+  }
+
+results_3 <- left_join(bound_adm2, df4) 
+
+## Plot the results
+ggplot(data = results_3) +
+  geom_sf(aes(fill = c.index), col="grey50",  size = 0.05) +
+  #scale_fill_viridis_c(option = "plasma", direction = -1) + #limits=c(0, 1), breaks=seq(0, 1, by=0.25)
+  scale_fill_gradient2(low="#08306b", high="#a50f15", midpoint=0) +
+  labs(fill = "Concentration index") +
+  #coord_sf(crs = "+proj=eqearth") + 
+  theme_minimal() +
+  ggsave("./4_Figures/Map_India_CI_num_vacc_wealth.png", width = 8, height=6, dpi=300)
+
+
+
