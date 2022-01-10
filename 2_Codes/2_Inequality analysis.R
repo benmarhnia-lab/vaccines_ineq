@@ -33,7 +33,7 @@ options(scipen=999)
 options(digits=5)
 
 rm(list =ls())
-setwd("C:/Users/annak/Dropbox/Projects/2021_San Diego/Vaccination - spatial analysis/")
+setwd("C:/Users/Vaccination - spatial analysis/")
 
 load('./1_Data/data_for_analysis.RData')
 
@@ -206,10 +206,10 @@ cii <- cii %>%
   left_join(df2) %>% 
   select(reg1, ACI, FIC) %>% 
   mutate(RCI = ACI/(1-FIC)) %>% 
-  mutate(RCI = ifelse(reg1 == "AL-Korçë", 0, RCI)) %>% #ACI value of 0
+  mutate(RCI = ifelse(reg1 == "AL-KorÃ§Ã«", 0, RCI)) %>% #ACI value of 0
   mutate(RCI = ifelse(reg1 == "IA-Punjab-Kapurthala", 0, RCI)) %>%  #ACI value of 0
   filter(reg1 != "AM-Aragatsotn") %>% #remove: too few observations for estimates to be reliable
-  filter(reg1 != "AL-Shkodër")
+  filter(reg1 != "AL-ShkodÃ«r")
 
 ##demonstrating the bounded nature of the CI (Wagstaff 2005, 2011) - the higher the mean FIC the narrower the CI bounds become
 library(cowplot)
@@ -246,10 +246,6 @@ ggplot() +
   theme(legend.key = element_rect(color="black")) + 
   theme(legend.direction='horizontal', legend.position="bottom") +
   ggsave("./4_Figures/Map_CI_fic_and_wealth_age12-35.png", width = 8, height=5, dpi=600)
-
-
-#low="#83b29f", high="#803152"
-#alternative color scheme (red & blue): low="#b1d0e3", high="#c00e29"
 
 
 ## Plot CI for Haiti and Guatemala
@@ -375,14 +371,6 @@ ggplot(data=cii.cnt,  aes(x = reorder(country, -RCI), y=RCI, fill=RCI)) +
   ggsave("./4_Figures/CI_by_country.svg", width = 8, height = 4)
 
 
-
-#hist(cii_sf$RCI)
-#cii_sf <- cii_sf %>% mutate(c.index = abs(RCI))
-#cii.wealth <- cii_sf %>%
-#  filter(!is.na(c.index))
-#rm(list=setdiff(ls(), c("cii.wealth", "share.vac.12.35", "world", "world_sub")))
-#save.image(file='./2_Codes/data_for_spatial_analysis.RData')
-
 ################################################################################
 #### 3. Bi-variate map for incomplete immunization and inequality
 ################################################################################
@@ -468,8 +456,6 @@ ggplot() +
   theme(panel.border = element_rect(color = "#333333", fill = NA, size = 1)) +
   theme(plot.background= element_rect(fill = "white", colour = "white")) +
   ggsave("./4_Figures/Map_bivariate_Americas.png", width = 4.75, height=2.7, dpi=600)
-
-
 
 
 ## combine map with legend
@@ -560,16 +546,6 @@ df14 <- df1 %>%
 library(wppExplorer)
 wpp.explore() #retrieve the appropriate data from the interface
 
-#pop <- read.csv("./1_Data/popagesex_2020.csv") %>% 
-#  select(name, value) %>% 
-#  dplyr::rename(country = name,
-#         pop = value) %>% 
-#  mutate(country = ifelse(country == "Tanzania, United Republic of", "Tanzania", country)) %>%
-#  mutate(country = ifelse(country == "Gambia", "The Gambia", country)) %>% 
-#  #adjust the population estimates, which are shown in thousands and for age group 0 to 5
-#  mutate(pop = pop * 2/5 * 1000) 
-  
-
 pop <-  read.csv("./1_Data/popagesex_2020_single_years.csv") %>% 
   dplyr::select("country", "age1", "age2") %>% 
   mutate(country = ifelse(country == "United Republic of Tanzania", "Tanzania", country)) %>%
@@ -652,11 +628,7 @@ ggplot() +
   ggsave("./4_Figures/Map_missing_vaccines.svg", width = 8, height=5, dpi=600)
 
 
-#FFB7A1
-
 ## UpSet plot by country
-## loop doesn't work, do it manually
-
 unique(df16$country)
 
 i = "Zimbabwe"
