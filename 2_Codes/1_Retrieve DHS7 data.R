@@ -28,19 +28,19 @@ options(scipen=999)
 options(digits=5)
 
 ## Set up your DHS credentials
-set_rdhs_config(email = "anna.k.dimitrova@gmail.com",
-                project = "Climate shocks and childhood health")
+set_rdhs_config(email = XXX,
+                project = XXX)
 
 
-set_rdhs_config(email = "anna.k.dimitrova@gmail.com",
-                project = "Climate shocks and childhood health",
+set_rdhs_config(email = XXX,
+                project = XXX,
                 config_path = "rdhs.json",
                 cache_path = "dhs 7",
                 global = FALSE)
 
 rm(list =ls())
 
-setwd("C:/Users/annak/Dropbox/Projects/2021_San Diego/Vaccination - spatial analysis/1_Data/")
+setwd("C:/Users/Vaccination - spatial analysis/1_Data/")
 
 ################################################################################
 ## 1. Retrieve the survey data
