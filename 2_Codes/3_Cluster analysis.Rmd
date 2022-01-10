@@ -1,0 +1,308 @@
+---
+title: "Vaccine Inequality"
+author: "Gabriel Carrasco-Escobar"
+date: "5/22/2021"
+output: html_document
+---
+
+# Packages and Data
+
+```{r}
+library(tidyverse)
+library(sf)
+#install.packages("mapview")
+library(mapview)
+#install.packages("spdep")
+library(spdep)
+library(sp)
+library(purrr)
+#install.packages("leaflet")
+library(leaflet)
+library(RColorBrewer)
+
+
+load("./data_for_spatial_analysis.RData")
+
+share.vac.12.35 <- share.vac.12.35 %>%
+  filter(!is.na(FIC))
+
+
+cii.wealth <- cii.wealth %>%
+  filter(!is.na(c.index))
+
+```
+
+# Vaccination Share
+
+## Visualization
+
+### FIC
+
+```{r}
+# mapview(share.vac.12.35, zcol = "FIC")
+```
+
+### PIC
+
+```{r}
+# mapview(share.vac.12.35, zcol = "PIC")
+```
+
+## Spatial Data wrangling
+
+- Remove regions with no neighbours
+
+```{r}
+clean_sp <- function(object) {
+  
+  #share_sp_0 <- as(object, "Spatial")
+  share_nb_0 <- poly2nb(object)  #queen contiguity
+  #summary(share_nb_0)
+  
+  list_r <- card(share_nb_0) %>%
+    as_data_frame() %>%
+    rownames_to_column() %>%
+    filter(value<1) %>%
+    pull(rowname)
+  
+  share <- object %>%
+    rownames_to_column(var = "id") %>%
+    filter(!(id %in% list_r)) 
+  
+  return(share)
+}
+```
+
+
+## Clustering
+
+```{r}
+breaks <- c(-Inf, -2.58, -1.96, -1.65, 1.65, 1.96, 2.58, Inf)
+labels <- c("Low (99% confidence)", "Low (95% confidence)", "Low (90% confidence)", "NS","High (90% confidence)", "High (95% confidence)", "High (99% confidence)")
+
+share_getis <- share.vac.12.35 %>%
+  #filter(DHSCC == "AF" | DHSCC == "MV") %>% # testing
+  group_by(country) %>%
+  nest() %>%
+  crossing(var1 = c("FIC","PIC")) %>%
+  mutate(data_clean = map(.x = data, .f = ~clean_sp(.)),
+         data_sub = map2(.x = data_clean, .y = var1, 
+                         .f = ~dplyr::select(.x, .y, region) %>% 
+                           rename(output = 1)),
+         dat_tbl = map(.x = data_sub, .f = ~st_set_geometry(.x, NULL)),
+         units = map_dbl(.x = dat_tbl, .f = ~nrow(.x))) %>%
+  filter(units>0) %>%
+  mutate(#share_sp = map(.x = data_sub, .f = ~as(.x, "Spatial")),
+         share_nb = map(.x = data_sub, .f = ~poly2nb(.x)),
+         share_w = map(.x = share_nb, .f = ~nb2listw(.x)),
+         LISA = map2(.x = data_sub, .y = share_w, .f = ~localG(.x$output, .y)),
+         clust_LISA = map(.x = LISA, .f = ~cut(.x, include.lowest = TRUE, 
+                                               breaks = breaks, labels = labels,
+                                               ordered_result = T))) %>%
+  dplyr::select(country, dat_tbl, var1, LISA, clust_LISA) %>%
+  unnest() %>%
+  gather(var, val, LISA:clust_LISA) %>%
+  unite(name, var1, var) %>%
+  select(-output) %>%
+  spread(name, val)
+
+# a<-share_getis$data_clean[[1]]
+# a<-share_getis$data_sub[[1]]
+# a<-share_getis$share_sp[[1]]
+# a<-share_getis$share_w[[1]]
+
+saveRDS(share_getis, "./_out/share_getis.rds")
+```
+
+## Mapping
+
+```{r}
+map_share_getis <- share.vac.12.35 %>%
+  inner_join(share_getis, 
+             by = c("country", "region"))
+
+saveRDS(map_share_getis, "./_out/map_share_getis.rds")
+```
+
+### FIC
+
+```{r}
+# mapview(map_share_getis, zcol ="FIC_clust_LISA", 
+#         col.regions = brewer.pal(7, "RdBu"),
+#         layer.name = "LISA - FIC", at = labels)
+
+fic <- map_share_getis %>%
+  ggplot() + 
+  geom_sf(data = world, fill = "gray", size=0) +
+  geom_sf(aes(fill = FIC_clust_LISA), size=0) +
+  geom_sf(data = world, alpha=0, size = .2) +
+  scale_fill_brewer(palette = "RdBu", limits = rev(labels)) + 
+  theme_bw()
+
+ggsave("./_out/f_fic.png", fic, height = 6, width = 10, dpi = "retina")
+```
+
+### PIC
+
+```{r}
+# mapview(map_share_getis, zcol ="PIC_clust_LISA", 
+#         col.regions = brewer.pal(7, "RdBu"),
+#         layer.name = "LISA - PIC", at = labels)
+
+pic <- map_share_getis %>%
+  ggplot() + 
+  geom_sf(data = world, fill = "gray", size=0) +
+  geom_sf(aes(fill = PIC_clust_LISA), size = 0) +
+  geom_sf(data = world, alpha=0, size = .2) +
+  scale_fill_brewer(palette = "RdBu", limits = rev(labels)) + 
+  theme_bw()
+
+ggsave("./_out/f_pic.png", pic, height = 6, width = 10, dpi = "retina")
+```
+
+### Composite
+
+```{r}
+library(cowplot)
+
+# fic_pic <- plot_grid(fic, pic, ncol = 2)
+# 
+# ggsave("./_out/fic_pic.png", fic_pic, height = 6, width = 10, dpi = "retina")
+```
+
+# Concentration Index
+
+## Visualization
+
+### CI
+
+```{r}
+# mapview(cii.wealth, zcol = "c.index")
+```
+
+## Clustering
+
+```{r}
+cii_getis <- cii.wealth %>%
+  #filter(DHSCC == "AF" | DHSCC == "MV") %>% # testing
+  group_by(country) %>%
+  nest() %>%
+  mutate(data_clean = map(.x = data, .f = ~clean_sp(.)),
+         data_sub = map(.x = data_clean, 
+                         .f = ~dplyr::select(.x, c.index, region) %>% 
+                           rename(output = 1)),
+         dat_tbl = map(.x = data_sub, .f = ~st_set_geometry(.x, NULL)),
+         units = map_dbl(.x = dat_tbl, .f = ~nrow(.x))) %>%
+  filter(units>0) %>%
+  mutate(#share_sp = map(.x = data_sub, .f = ~as(.x, "Spatial")),
+         share_nb = map(.x = data_sub, .f = ~poly2nb(.x)),
+         share_w = map(.x = share_nb, .f = ~nb2listw(.x)),
+         LISA = map2(.x = data_sub, .y = share_w, .f = ~localG(.x$output, .y)),
+         clust_LISA = map(.x = LISA, .f = ~cut(.x, include.lowest = TRUE, 
+                                               breaks = breaks, labels = labels,
+                                               ordered_result = T))) %>%
+  dplyr::select(country, dat_tbl, LISA, clust_LISA) %>%
+  unnest() %>%
+  select(-output) %>%
+  rename(CI_LISA = LISA,
+         CI_clust_LISA = clust_LISA)
+
+saveRDS(cii_getis, "./_out/cii_getis.rds")
+```
+
+## Mapping
+
+```{r}
+map_cii_getis <- cii.wealth %>%
+  inner_join(cii_getis, 
+             by = c("country", "region"))
+
+saveRDS(map_cii_getis, "./_out/map_cii_getis.rds")
+```
+
+### CI
+
+```{r}
+# mapview(map_cii_getis, zcol ="CI_clust_LISA", 
+#         col.regions = brewer.pal(7, "RdBu"),
+#         layer.name = "LISA - CI", at = labels)
+
+ci <- map_cii_getis %>%
+  ggplot() + 
+  geom_sf(data = world, fill = "gray", size=0) +
+  geom_sf(aes(fill = CI_clust_LISA), size = 0) +
+  geom_sf(data = world, alpha=0, size = .2) +
+  scale_fill_brewer(palette = "RdBu", limits = rev(labels)) + 
+  theme_bw()
+
+ggsave("./_out/f_ci.png", ci, height = 6, width = 10, dpi = "retina")
+```
+
+
+
+################################################################################
+## New plots
+################################################################################
+rm(list =ls())
+
+
+#install.packages("rworldmap")
+#install.packages("rnaturalearthdata")
+library(rworldmap)
+library(rnaturalearth)
+
+setwd("C:/Users/annak/Dropbox/Projects/2021_San Diego/Vaccination - spatial analysis/2_Codes/_out/")
+
+map_share_getis <- readRDS("map_share_getis.rds")
+
+
+world <- ne_countries(scale = "medium", returnclass = "sf") %>%
+  dplyr::select(name, economy, income_grp, continent, region_wb) %>% 
+  filter(name!="Antarctica") 
+
+names <- unique(map_share_getis$country)
+names <- c(names, "Gambia")
+names
+world_sub <- world %>% 
+  filter(name %in% names) 
+setdiff(names, world_sub$name)
+
+
+breaks <- c(-Inf, -2.58, -1.96, -1.65, 1.65, 1.96, 2.58, Inf)
+labels <- c("Low (99% confidence)", "Low (95% confidence)", "Low (90% confidence)", "NS","High (90% confidence)", "High (95% confidence)", "High (99% confidence)")
+
+
+fic <- map_share_getis %>%
+  ggplot() + 
+  geom_sf(data = world, fill = "darkgray", size=0.001, colour = "white") +
+  geom_sf(aes(fill = FIC_clust_LISA), color="lightgray",  size =0.001) +
+  geom_sf(data = world_sub, fill = NA, size = 0.1, colour = "#333333") +
+  coord_sf(xlim = c(-95, 145), ylim = c(-45, 50), expand = FALSE) +
+  scale_fill_brewer(palette = "RdBu", direction=1, limits = labels)+
+  labs(fill = "Clusters") +
+  theme_minimal() +
+  #theme(legend.direction='horizontal', legend.position="bottom") +
+  ggsave("Map_FIC_clust_LISA.png", width = 10, height=6, dpi=600)
+
+
+
+
+map_cii_getis <- readRDS("map_cii_getis.rds")
+
+
+cii <- map_cii_getis %>%
+  ggplot() + 
+  geom_sf(data = world, fill = "darkgray", size=0.001, colour = "white") +
+  geom_sf(aes(fill = CI_clust_LISA), color="lightgray",  size =0.001) +
+  geom_sf(data = world_sub, fill = NA, size = 0.1, colour = "#333333") +
+  coord_sf(xlim = c(-95, 145), ylim = c(-45, 50), expand = FALSE) +
+  scale_fill_brewer(palette = "RdBu", direction=1, limits = rev(labels))+
+  labs(fill = "Clusters") +
+  theme_minimal() +
+  #theme(legend.direction='horizontal', legend.position="bottom") +
+  ggsave("Map_CII_clust_LISA.png", width = 10, height=6, dpi=600)
+
+
+```
+
+
