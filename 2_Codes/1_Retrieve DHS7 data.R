@@ -581,7 +581,6 @@ share.vac.24.35 <- left_join(bord_sf, df4)
 
 save.image(file='data_for_analysis.RData')
 
-## Cross check country level shares with DHS statcompiler
 ## generate country-level aggregates (age group 12-23 months)
 df5 <- df1 %>% 
   filter(age.months <= 23) %>% 
@@ -610,18 +609,4 @@ df6 <- df1 %>%
 rm(list =ls())
 
 
-################################################################################
-#### Summary statistics
-################################################################################
 
-sum1 <- df1 %>% 
-  select(c(hh.id, DHSCC, FIC, wealth, health.card)) %>% 
-  filter(!is.na(FIC)) %>% 
-  mutate(health.card = ifelse(is.na(health.card), "no card", health.card)) %>% 
-  mutate(health.card = ifelse(health.card == "yes, not seen", "no card", health.card)) %>% 
-  mutate(health.card = ifelse(health.card == "no longer has card", "no card",  health.card)) %>% 
-  mutate(health.card = ifelse(health.card == "yes, card seen from health facility", "yes, seen",  health.card))
-
-sum2 <- df1 %>% 
-  group_by(health.card) %>% 
-  dplyr::summarise(obs = n())
