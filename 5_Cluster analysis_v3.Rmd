@@ -1,0 +1,256 @@
+---
+title: "Vaccine Inequality"
+author: "Gabriel Carrasco-Escobar"
+date: "Created: 5/22/2021 | Updated: 11/07/2022"
+output: html_document
+---
+
+# Packages and Data
+
+```{r}
+rm(list =ls())
+
+library(tidyverse)
+library(sf)
+#install.packages("mapview")
+library(mapview)
+#install.packages("spdep")
+library(spdep)
+library(sp)
+library(purrr)
+#install.packages("leaflet")
+library(leaflet)
+library(RColorBrewer)
+
+
+load("./data_for_spatial_analysis.RData")
+
+```
+
+# Vaccination Share
+
+## Visualization
+
+```{r}
+# mapview(share.vac.12.35, zcol = "FIC")
+```
+
+## Spatial Data wrangling
+
+- Remove regions with no neighbours
+
+```{r}
+clean_sp <- function(object) {
+  
+  #share_sp_0 <- as(object, "Spatial")
+  object_1 <- st_make_valid(object)
+  share_nb_0 <- poly2nb(object_1)  #queen contiguity
+  #summary(share_nb_0)
+  
+  list_r <- card(share_nb_0) %>%
+    as_data_frame() %>%
+    rownames_to_column() %>%
+    filter(value<1) %>%
+    pull(rowname)
+  
+  share <- object_1 %>%
+    rownames_to_column(var = "id") %>%
+    filter(!(id %in% list_r)) 
+  
+  return(share)
+}
+```
+
+
+## Clustering
+
+```{r}
+breaks <- c(-Inf, -2.58, -1.96, -1.65, 1.65, 1.96, 2.58, Inf)
+labels <- c("Low (99% confidence)", "Low (95% confidence)", "Low (90% confidence)", "NS","High (90% confidence)", "High (95% confidence)", "High (99% confidence)")
+
+share_getis <- share.vac.15.35 %>%
+  group_by(country, reg1) %>%
+  filter(row_number()==1) %>%
+  ungroup() %>%
+  # filter(country == "Afghanistan" | country == "Benin") %>% # testing
+  group_by(country) %>%
+  nest() %>%
+  #crossing(var1 = c("FIC","PIC")) %>%
+  mutate(var1 = "FIC") %>%
+  mutate(data_clean = map(.x = data, .f = ~clean_sp(.)),
+         data_sub = map2(.x = data_clean, .y = var1, 
+                         .f = ~dplyr::select(.x, .y, reg1) %>% 
+                           rename(output = 1)),
+         dat_tbl = map(.x = data_sub, .f = ~st_set_geometry(.x, NULL)),
+         units = map_dbl(.x = dat_tbl, .f = ~nrow(.x))) %>%
+  filter(units>0) %>%
+  mutate(#share_sp = map(.x = data_sub, .f = ~as(.x, "Spatial")),
+         share_nb = map(.x = data_sub, .f = ~poly2nb(.x)),
+         share_w = map(.x = share_nb, .f = ~nb2listw(.x)),
+         LISA = map2(.x = data_sub, .y = share_w, .f = ~localG(.x$output, .y)),
+         clust_LISA = map(.x = LISA, .f = ~cut(.x, include.lowest = TRUE, 
+                                               breaks = breaks, labels = labels,
+                                               ordered_result = T))) %>%
+  dplyr::select(country, dat_tbl, var1, LISA, clust_LISA) %>%
+  unnest() %>%
+  select(-output, -var1) %>%
+  rename(FIC_LISA = LISA,
+         FIC_clust_LISA = clust_LISA)
+
+# a<-share_getis$data_clean[[1]]
+# a<-share_getis$data_sub[[1]]
+# a<-share_getis$share_sp[[1]]
+# a<-share_getis$share_w[[1]]
+
+saveRDS(share_getis, "./_out/share_getis_v3.rds")
+
+```
+
+## Mapping
+
+```{r}
+map_share_getis <- share.vac.15.35 %>%
+  group_by(country, reg1) %>%
+  filter(row_number()==1) %>%
+  ungroup() %>%
+  inner_join(share_getis, 
+             by = c("country", "reg1"))
+
+saveRDS(map_share_getis, "./_out/map_share_getis_v3.rds")
+```
+
+### FIC
+
+```{r}
+# mapview(map_share_getis, zcol ="FIC_clust_LISA",
+#         col.regions = brewer.pal(7, "RdBu"),
+#         layer.name = "LISA - FIC", at = labels)
+
+fic <- map_share_getis %>%
+  ggplot() +
+  geom_sf(data = world, fill = "gray", size=0) +
+  geom_sf(aes(fill = FIC_clust_LISA), size=0) +
+  geom_sf(data = world, alpha=0, size = .2) +
+  scale_fill_brewer(palette = "RdBu", limits = rev(labels)) +
+  theme_bw()
+
+ggsave("./_out/f_fic.png", fic, height = 6, width = 10, dpi = "retina")
+```
+
+# Concentration Index
+
+## Visualization
+
+### Wagstaff
+
+```{r}
+# mapview(cii.wealth, zcol = "CI_wagstaff")
+```
+
+### Erreygers
+
+```{r}
+# mapview(cii.wealth, zcol = "CI_erreygers")
+```
+
+## Spatial Data wrangling
+
+- Remove regions with no neighbours
+
+```{r}
+clean_sp <- function(object) {
+  
+  #share_sp_0 <- as(object, "Spatial")
+  object_1 <- st_make_valid(object)
+  share_nb_0 <- poly2nb(object_1)  #queen contiguity
+  #summary(share_nb_0)
+  
+  list_r <- card(share_nb_0) %>%
+    as_data_frame() %>%
+    rownames_to_column() %>%
+    filter(value<1) %>%
+    pull(rowname)
+  
+  share <- object_1 %>%
+    rownames_to_column(var = "id") %>%
+    filter(!(id %in% list_r)) 
+  
+  return(share)
+}
+```
+
+
+## Clustering
+
+```{r}
+breaks <- c(-Inf, -2.58, -1.96, -1.65, 1.65, 1.96, 2.58, Inf)
+labels <- c("Low (99% confidence)", "Low (95% confidence)", "Low (90% confidence)", "NS","High (90% confidence)", "High (95% confidence)", "High (99% confidence)")
+
+cii_getis <- cii.wealth %>%
+  group_by(country, reg1) %>%
+  filter(row_number()==1) %>%
+  ungroup() %>%
+  # filter(country == "Afghanistan" | country == "Benin") %>% # testing
+  group_by(country) %>%
+  nest() %>%
+  crossing(var1 = c("CI_wagstaff","CI_erreygers")) %>%
+  mutate(data_clean = map(.x = data, .f = ~clean_sp(.)),
+         data_sub = map2(.x = data_clean, .y = var1, 
+                         .f = ~dplyr::select(.x, .y, reg1) %>% 
+                           rename(output = 1)),
+         dat_tbl = map(.x = data_sub, .f = ~st_set_geometry(.x, NULL)),
+         units = map_dbl(.x = dat_tbl, .f = ~nrow(.x))) %>%
+  filter(units>0) %>%
+  mutate(#share_sp = map(.x = data_sub, .f = ~as(.x, "Spatial")),
+         share_nb = map(.x = data_sub, .f = ~poly2nb(.x)),
+         share_w = map(.x = share_nb, .f = ~nb2listw(.x)),
+         LISA = map2(.x = data_sub, .y = share_w, .f = ~localG(.x$output, .y)),
+         clust_LISA = map(.x = LISA, .f = ~cut(.x, include.lowest = TRUE, 
+                                               breaks = breaks, labels = labels,
+                                               ordered_result = T))) %>%
+  dplyr::select(country, dat_tbl, var1, LISA, clust_LISA) %>%
+  unnest() %>%
+  gather(var, val, LISA:clust_LISA) %>%
+  unite(name, var1, var, sep = "-") %>%
+  select(-output) %>%
+  spread(name, val)
+
+# TESTING [NOT RUN]
+# glimpse(cii_getis)
+# a<-cii_getis$data_clean[[1]]
+# a<-cii_getis$data_sub[[1]]
+# a<-cii_getis$share_nb[[1]]
+# a<-cii_getis$share_w[[1]]
+
+saveRDS(cii_getis, "./_out/cii_getis_v3.rds")
+```
+
+## Mapping
+
+```{r}
+map_cii_getis <- cii.wealth %>%
+  group_by(country, reg1) %>%
+  filter(row_number()==1) %>%
+  ungroup() %>%
+  inner_join(cii_getis, 
+             by = c("country", "reg1"))
+
+saveRDS(map_cii_getis, "./_out/map_cii_getis_v3.rds")
+```
+
+### Wagstaff
+
+```{r}
+# mapview(map_cii_getis, zcol ="CI_wagstaff-clust_LISA",
+#         col.regions = brewer.pal(7, "RdBu"),
+#         layer.name = "LISA - CI Wagstaff", at = labels)
+```
+
+### Erreygers
+
+```{r}
+# mapview(map_cii_getis, zcol ="CI_erreygers-clust_LISA",
+#         col.regions = brewer.pal(7, "RdBu"),
+#         layer.name = "LISA - CI Wagstaff", at = labels)
+```
+
